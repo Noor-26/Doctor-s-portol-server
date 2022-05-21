@@ -4,6 +4,8 @@ require('dotenv').config()
 const port = process.env.PORT || 5000
 const app = express()
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const {  sign } = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 // middlewere
 
 app.use(cors())
@@ -14,12 +16,29 @@ app.use(express.json())
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.tq1da.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
 
+function varifyToken (req,res,next) {
+    const authorize = req.headers.authorization
+   if(!authorize){
+    return res.status(401).send({message:"who are you"})
+   }
+   const token = authorize.split(" ")[1]
+   jwt.verify(token, process.env.ACCESS_TOKEN, function(err, decoded) {
+   if(err){
+    return res.status(403).send({message:"You can't enter"})
+   }
+   req.decoded = decoded
+   next()
+  });
+   
+}
+
 const run = async () => {
     try{
         await client.connect()
         const serviceCollection = client.db("Doctor's-Portal").collection("Services");
         const bookingCollection = client.db("Doctor's-Portal").collection("bookings");
         const userCollection = client.db("Doctor's-Portal").collection("users");
+
         app.put('/user/:email',async(req,res)=>{
             const email = req.params.email
             const user = req.body
@@ -29,10 +48,10 @@ const run = async () => {
                 $set:user
             }
             const result = await userCollection.updateOne(filter,updateDoc,options)
-            res.send(result);
+            const token = jwt.sign({email:email},process.env.ACCESS_TOKEN,{expiresIn:'1d'})
+            res.send({result,token});
         })
        
-
         app.post('/booking',async(req,res)=>{
             const booking = req.body
             console.log(booking.date)
@@ -45,11 +64,19 @@ const run = async () => {
             res.send({success:true,result})
         })
 
-        app.get('/booking',async(req,res)=>{
+        app.get('/booking',varifyToken, async(req,res)=>{
             const patient = req.query.patient
-            const query = {patient:patient}
-            const patientBookings = await bookingCollection.find(query).toArray() 
-            res.send(patientBookings)
+            const authorization = req.headers.authorization
+            const decodedEmail = req.decoded.email
+            if(patient === decodedEmail){
+                const query = {patient:patient}
+                const patientBookings = await bookingCollection.find(query).toArray() 
+                res.send(patientBookings)
+            }
+            else{
+                return res.status(403).send({message:"you can't enter in the website(*_*)"})
+            }
+            
         })
 
         app.get('/avaliable',async (req,res) => {
